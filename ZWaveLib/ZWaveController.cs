@@ -1325,60 +1325,44 @@ namespace ZWaveLib
                 Utility.Logger.Trace("Merged buffer to message: {0}", BitConverter.ToString(message));
             }
 
-            // Extract Z-Wave frames from incoming serial port data
-            FrameHeader header = (FrameHeader)((int)message[0]);
-            if (header == FrameHeader.ACK)
+            // Extract complete Z-Wave frames and single-byte control messages.
+            int offset = 0;
+            while (offset < message.Length)
             {
-                if (message.Length > 1)
+                FrameHeader header = (FrameHeader)message[offset];
+                int length = 1;
+                if (header == FrameHeader.SOF)
                 {
-                    byte[] msg = new byte[message.Length - 1];
-                    Array.Copy(message, 1, msg, 0, msg.Length);
-                    ProcessMessage(new ZWaveMessage(msg, MessageDirection.Inbound));
+                    int remaining = message.Length - offset;
+                    if (remaining >= 2 && message[offset + 1] < 3)
+                    {
+                        Utility.Logger.Warn("Invalid serial frame length: {0}", message[offset + 1]);
+                        offset++;
+                        continue;
+                    }
+                    if (remaining < 2 || remaining < message[offset + 1] + 2)
+                    {
+                        serialBuffer = new byte[remaining];
+                        Array.Copy(message, offset, serialBuffer, 0, remaining);
+                        return;
+                    }
+                    length = message[offset + 1] + 2;
                 }
-                return;
-            }
 
-            int msgLength = 0;
-            byte[] nextMessage = null;
-            if (header == FrameHeader.CAN && message.Length > 1)
-            {
-                nextMessage = new byte[message.Length - 1];
-                Array.Copy(message, 1, nextMessage, 0, nextMessage.Length);
-                message = new byte[] { (byte)header };
-            }
-            else if (message.Length > 1)
-            {
-                msgLength = (int)message[1];
-                if (message.Length > msgLength + 2)
+                if (header != FrameHeader.ACK)
                 {
-                    nextMessage = new byte[message.Length - msgLength - 2];
-                    Array.Copy(message, msgLength + 2, nextMessage, 0, nextMessage.Length);
-                    byte[] tmpmsg = new byte[msgLength + 2];
-                    Array.Copy(message, 0, tmpmsg, 0, msgLength + 2);
-                    message = tmpmsg;
+                    byte[] frame = new byte[length];
+                    Array.Copy(message, offset, frame, 0, length);
+                    try
+                    {
+                        ProcessMessage(new ZWaveMessage(frame, MessageDirection.Inbound));
+                    }
+                    catch (Exception e)
+                    {
+                        Utility.Logger.Error(e);
+                    }
                 }
-                else if (header == FrameHeader.SOF && message.Length < msgLength + 2)
-                {
-                    serialBuffer = new byte[message.Length];
-                    Array.Copy(message, 0, serialBuffer, 0, serialBuffer.Length);
-                    Utility.Logger.Trace("Expected message length is {0}, currently received length is {1}", msgLength + 2, message.Length);
-                    return;
-                }
-            }
-
-            try
-            {
-                ProcessMessage(new ZWaveMessage(message, MessageDirection.Inbound));
-            }
-            catch (Exception e)
-            {
-                Utility.Logger.Error(e);
-            }
-
-            if (nextMessage != null)
-            {
-                // TODO: Check out possible recursion loops
-                ParseSerialData(nextMessage);
+                offset += length;
             }
         }
 
