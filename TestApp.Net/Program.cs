@@ -5,10 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
-using GLabs.Logging;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
 using ZWaveLib;
 using ZWaveLib.CommandClasses;
 
@@ -23,21 +22,13 @@ namespace TestApp.NetCore
 
         public static void Main(string[] cargs)
         {
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", optional: false)
-                .Build();
-
-            var serviceProvider = new ServiceCollection()
-                .AddLogging(builder =>
-                {
-                    builder.AddConfiguration(configuration.GetSection("Logging"));
-                    builder.AddConsole();
-                })
-                .BuildServiceProvider();
-
-            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-            LogManager.Initialize(loggerFactory);
+            var loggingConfiguration = new LoggingConfiguration();
+            var consoleTarget = new ConsoleTarget("console")
+            {
+                Layout = "${longdate} ${level:uppercase=true} ${logger} ${message}"
+            };
+            loggingConfiguration.AddRule(LogLevel.Debug, LogLevel.Fatal, consoleTarget, "ZWaveLib");
+            LogManager.Configuration = loggingConfiguration;
 
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("\nZWaveLib Test Program\n");

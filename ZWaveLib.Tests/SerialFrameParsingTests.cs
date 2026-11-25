@@ -39,7 +39,7 @@ public class SerialFrameParsingTests
             Assert.That(GetField("currentStage"), Is.EqualTo(QueryStage.WaitAck), $"split {split}");
             Parse(response[split..]);
             Assert.That(GetField("currentStage"), Is.EqualTo(QueryStage.Complete), $"split {split}");
-            Assert.That(GetField("serialBuffer"), Is.Null, $"split {split}");
+            Assert.That(GetField("serialBufferLength"), Is.EqualTo(0), $"split {split}");
         }
     }
 
@@ -51,7 +51,7 @@ public class SerialFrameParsingTests
         foreach (byte value in InitResponse())
             Parse(new[] { value });
         Assert.That(GetField("currentStage"), Is.EqualTo(QueryStage.Complete));
-        Assert.That(GetField("serialBuffer"), Is.Null);
+        Assert.That(GetField("serialBufferLength"), Is.EqualTo(0));
     }
 
     [Test]
@@ -77,7 +77,22 @@ public class SerialFrameParsingTests
         Array.Copy(response, 0, data, response.Length + 2, response.Length);
         Parse(data);
         Assert.That(GetField("currentStage"), Is.EqualTo(QueryStage.Error));
-        Assert.That(GetField("serialBuffer"), Is.Null);
+        Assert.That(GetField("serialBufferLength"), Is.EqualTo(0));
+    }
+
+    [Test]
+    public void SerialBufferStorageIsReusedAfterFragmentedFrame()
+    {
+        byte[] response = InitResponse();
+        ResetParser();
+        Parse(response[..1]);
+        Parse(response[1..]);
+        byte[] buffer = (byte[])GetField("serialBuffer")!;
+
+        ResetParser();
+        Parse(response[..1]);
+        Assert.That(GetField("serialBuffer"), Is.SameAs(buffer));
+        Assert.That(GetField("serialBufferLength"), Is.EqualTo(1));
     }
 
     [Test]
@@ -136,7 +151,7 @@ public class SerialFrameParsingTests
 
     private void ResetParser()
     {
-        SetField("serialBuffer", null);
+        SetField("serialBufferLength", 0);
         SetField("lastMessage", null);
         SetField("currentStage", QueryStage.WaitAck);
         SetField("pendingRequest", new ZWaveMessage(new byte[] { 1, 3, 0, (byte)ZWaveFunction.GetInitData, 0 }));

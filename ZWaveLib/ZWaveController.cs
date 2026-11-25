@@ -65,7 +65,8 @@ namespace ZWaveLib
 
         private List<ZWaveNode> nodeList = new List<ZWaveNode>();
 
-        private byte[] serialBuffer = null;
+        private byte[] serialBuffer = new byte[4096];
+        private int serialBufferLength;
         private byte[] lastMessage = null;
         private DateTime lastMessageTimestamp = DateTime.UtcNow;
 
@@ -1315,44 +1316,48 @@ namespace ZWaveLib
         /// <param name="message">raw bytes data.</param>
         private void ParseSerialData(byte[] message)
         {
-            if (serialBuffer != null)
+            byte[] data = message;
+            int dataLength = message.Length;
+            int offset = 0;
+            if (serialBufferLength > 0)
             {
-                byte[] merged = new byte[serialBuffer.Length + message.Length];
-                Array.Copy(serialBuffer, 0, merged, 0, serialBuffer.Length);
-                Array.Copy(message, 0, merged, serialBuffer.Length, message.Length);
-                message = merged;
-                serialBuffer = null;
-                Utility.Logger.Trace("Merged buffer to message: {0}", BitConverter.ToString(message));
+                int bufferedLength = serialBufferLength;
+                EnsureSerialBufferCapacity(bufferedLength + message.Length);
+                Array.Copy(message, 0, serialBuffer, bufferedLength, message.Length);
+                data = serialBuffer;
+                dataLength = bufferedLength + message.Length;
+                serialBufferLength = 0;
+                Utility.Logger.Trace("Merged buffer to message: {0}", BitConverter.ToString(data, 0, dataLength));
             }
 
             // Extract complete Z-Wave frames and single-byte control messages.
-            int offset = 0;
-            while (offset < message.Length)
+            while (offset < dataLength)
             {
-                FrameHeader header = (FrameHeader)message[offset];
+                FrameHeader header = (FrameHeader)data[offset];
                 int length = 1;
                 if (header == FrameHeader.SOF)
                 {
-                    int remaining = message.Length - offset;
-                    if (remaining >= 2 && message[offset + 1] < 3)
+                    int remaining = dataLength - offset;
+                    if (remaining >= 2 && data[offset + 1] < 3)
                     {
-                        Utility.Logger.Warn("Invalid serial frame length: {0}", message[offset + 1]);
+                        Utility.Logger.Warn("Invalid serial frame length: {0}", data[offset + 1]);
                         offset++;
                         continue;
                     }
-                    if (remaining < 2 || remaining < message[offset + 1] + 2)
+                    if (remaining < 2 || remaining < data[offset + 1] + 2)
                     {
-                        serialBuffer = new byte[remaining];
-                        Array.Copy(message, offset, serialBuffer, 0, remaining);
+                        EnsureSerialBufferCapacity(remaining);
+                        Array.Copy(data, offset, serialBuffer, 0, remaining);
+                        serialBufferLength = remaining;
                         return;
                     }
-                    length = message[offset + 1] + 2;
+                    length = data[offset + 1] + 2;
                 }
 
                 if (header != FrameHeader.ACK)
                 {
                     byte[] frame = new byte[length];
-                    Array.Copy(message, offset, frame, 0, length);
+                    Array.Copy(data, offset, frame, 0, length);
                     try
                     {
                         ProcessMessage(new ZWaveMessage(frame, MessageDirection.Inbound));
@@ -1366,10 +1371,19 @@ namespace ZWaveLib
             }
         }
 
+        private void EnsureSerialBufferCapacity(int requiredCapacity)
+        {
+            if (serialBuffer.Length >= requiredCapacity)
+                return;
+
+            int capacity = Math.Max(requiredCapacity, serialBuffer.Length == 0 ? 16 : serialBuffer.Length * 2);
+            Array.Resize(ref serialBuffer, capacity);
+        }
+
         private void SerialPort_ConnectionStatusChanged(object sender, ConnectionStatusChangedEventArgs args)
         {
             var status = args.Connected ? ControllerStatus.Connected : ControllerStatus.Disconnected;
-            serialBuffer = null;
+            serialBufferLength = 0;
             lastMessage = null;
             Thread.Sleep(1000);
             OnControllerStatusChanged(new ControllerStatusEventArgs(status));
