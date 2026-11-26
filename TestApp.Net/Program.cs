@@ -15,7 +15,7 @@ namespace TestApp.NetCore
 {
     class Program
     {
-        private static string serialPortName = "COM3"; // "/dev/ttyACM0";
+        private static string serialPortName = "COM5"; // "/dev/ttyACM0";
         private static ControllerStatus controllerStatus = ControllerStatus.Disconnected;
         private static bool showDebugOutput = false;
 //        private static readonly LoggingRule LoggingRule = LogManager.Configuration.LoggingRules[0];
